@@ -2,11 +2,11 @@ package comm
 
 import (
 	"bytes"
-	"net"
-	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"net"
+	"testing"
 )
 
 func TestUDPChannel(t *testing.T) {
