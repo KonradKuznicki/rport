@@ -4,7 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/KonradKuznicki/must"
-	"github.com/cloudradar-monitoring/rport/cmd/rport/cli_boilerplate"
+	"github.com/cloudradar-monitoring/rport/cmd/rport/cliboilerplate"
 	"github.com/cloudradar-monitoring/rport/share/files"
 	"github.com/kardianos/service"
 	"github.com/spf13/cobra"
@@ -30,14 +30,14 @@ func init() {
 
 	// set help message
 	RootCmd.SetUsageFunc(func(*cobra.Command) error {
-		fmt.Print(cli_boilerplate.ClientHelp)
+		fmt.Print(cliboilerplate.ClientHelp)
 		os.Exit(1)
 		return nil
 	})
 
 	pFlags := RootCmd.PersistentFlags()
 
-	cli_boilerplate.SetPFlags(pFlags)
+	cliboilerplate.SetPFlags(pFlags)
 }
 
 // main this binary can be run in 3 ways
@@ -62,12 +62,12 @@ func isServiceManager() bool {
 	return svcCommand != ""
 }
 
-func decodeConfig(cfgPath string) (*chclient.ClientConfigHolder, error) {
+func decodeConfig(cfgPath string, overrideConfigWithCLIArgs bool) (*chclient.ClientConfigHolder, error) {
 
 	viperCfg := viper.New()
 	viperCfg.SetConfigType("toml")
 
-	cli_boilerplate.SetViperConfigDefaults(viperCfg)
+	cliboilerplate.SetViperConfigDefaults(viperCfg)
 
 	if cfgPath != "" {
 		viperCfg.SetConfigFile(cfgPath)
@@ -75,7 +75,14 @@ func decodeConfig(cfgPath string) (*chclient.ClientConfigHolder, error) {
 		viperCfg.AddConfigPath(".")
 		viperCfg.SetConfigName("rport.conf")
 	}
+
 	config := &chclient.ClientConfigHolder{Config: &clientconfig.Config{}}
+
+	pFlags := RootCmd.PersistentFlags()
+
+	if overrideConfigWithCLIArgs {
+		cliboilerplate.BindPFlagsToViperConfig(pFlags, viperCfg)
+	}
 
 	if err := chshare.DecodeViperConfig(viperCfg, config.Config, nil); err != nil {
 		return nil, err
@@ -85,23 +92,20 @@ func decodeConfig(cfgPath string) (*chclient.ClientConfigHolder, error) {
 		config.InterpreterAliases = map[string]string{}
 	}
 
-	return config, nil
-}
+	if overrideConfigWithCLIArgs {
+		args := pFlags.Args()
 
-func overrideConfigWithCliParamsForDevelopment(config *chclient.ClientConfigHolder) {
+		if len(args) > 0 {
+			config.Client.Server = args[0]
+			config.Client.Remotes = args[1:]
+		}
 
-	pFlags := RootCmd.PersistentFlags()
-	args := pFlags.Args()
-
-	if len(args) > 0 {
-		config.Client.Server = args[0]
-		config.Client.Remotes = args[1:]
+		config.Tunnels.Scheme = must.Return(pFlags.GetString("scheme"))
+		config.Tunnels.ReverseProxy = must.Return(pFlags.GetBool("enable-reverse-proxy"))
+		config.Tunnels.HostHeader = must.Return(pFlags.GetString("host-header"))
 	}
 
-	// TODO: finish tunnel config override ---v does not compile on purpose
-	config.Tunnels.Scheme = *tunnelsScheme
-	config.Tunnels.ReverseProxy = *tunnelsReverseProxy
-	config.Tunnels.HostHeader = *tunnelsHostHeader
+	return config, nil
 }
 
 func runClient() {
@@ -109,9 +113,7 @@ func runClient() {
 
 	cfgPath := must.Return(pFlags.GetString("config"))
 
-	config := must.ReturnF(decodeConfig(cfgPath))("Invalid config: %v. Check your config file.")
-
-	overrideConfigWithCliParamsForDevelopment(config)
+	config := must.ReturnF(decodeConfig(cfgPath, service.Interactive()))("Invalid config: %v. Check your config file.")
 
 	must.MustF(config.Logging.LogOutput.Start(), "failed starting log output: %v")
 	defer config.Logging.LogOutput.Shutdown()
@@ -160,7 +162,7 @@ func manageService() {
 		// validate config file without command line args before installing it for the service
 		// other service commands do not change config file specified at install
 
-		config := must.ReturnF(decodeConfig(cfgPath))("Invalid config: %v. Check your config file.")
+		config := must.ReturnF(decodeConfig(cfgPath, false))("Invalid config: %v. Check your config file.")
 
 		must.MustF(config.ParseAndValidate(true), "config validation failed: %v")
 

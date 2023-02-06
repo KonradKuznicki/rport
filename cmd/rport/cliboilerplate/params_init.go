@@ -1,4 +1,4 @@
-package cli_boilerplate
+package cliboilerplate
 
 import (
 	"github.com/cloudradar-monitoring/rport/client"
