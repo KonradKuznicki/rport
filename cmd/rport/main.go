@@ -49,17 +49,17 @@ func main() {
 }
 
 func runMain(*cobra.Command, []string) {
-	pFlags := RootCmd.PersistentFlags()
-
-	pFlags.Args()
-
-	svcCommand := must.Return(pFlags.GetString("service"))
-
-	if svcCommand == "" { // app run as rport client
-		runClient()
-	} else { // app run to change state of OS service
-		manageService(svcCommand)
+	if isServiceManager() {
+		manageService() // app run to change state of OS service
+	} else {
+		runClient() // app run as rport client
 	}
+}
+
+func isServiceManager() bool {
+	pFlags := RootCmd.PersistentFlags()
+	svcCommand := must.Return(pFlags.GetString("service"))
+	return svcCommand != ""
 }
 
 func decodeConfig(cfgPath string) (*chclient.ClientConfigHolder, error) {
@@ -146,10 +146,11 @@ func checkRootOK(config *chclient.ClientConfigHolder) error {
 	return nil
 }
 
-func manageService(svcCommand string) {
+func manageService() {
 	var svcUser string
 	pFlags := RootCmd.PersistentFlags()
 	cfgPath := must.Return(pFlags.GetString("config"))
+	svcCommand := must.Return(pFlags.GetString("service"))
 
 	if runtime.GOOS != "windows" {
 		svcUser = must.Return(pFlags.GetString("service-user"))
