@@ -1,11 +1,13 @@
 package cliboilerplate
 
 import (
-	"github.com/cloudradar-monitoring/rport/client"
-	"github.com/spf13/pflag"
-	"github.com/spf13/viper"
 	"os"
 	"time"
+
+	chclient "github.com/cloudradar-monitoring/rport/client"
+
+	"github.com/spf13/pflag"
+	"github.com/spf13/viper"
 )
 
 func BindPFlagsToViperConfig(pFlags *pflag.FlagSet, viperCfg *viper.Viper) {

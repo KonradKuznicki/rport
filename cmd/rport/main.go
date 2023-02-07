@@ -3,14 +3,15 @@ package main
 import (
 	"errors"
 	"fmt"
+	"os"
+	"runtime"
+
 	"github.com/KonradKuznicki/must"
 	"github.com/cloudradar-monitoring/rport/cmd/rport/cliboilerplate"
 	"github.com/cloudradar-monitoring/rport/share/files"
 	"github.com/kardianos/service"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
-	"os"
-	"runtime"
 
 	chclient "github.com/cloudradar-monitoring/rport/client"
 	chshare "github.com/cloudradar-monitoring/rport/share"
@@ -45,7 +46,7 @@ func init() {
 // 2 - as an OS service
 // 3 - as interface for managing OS service (start, stop, install, uninstall, etc) (install needs to check config and create dirs)
 func main() {
-	must.MustF(RootCmd.Execute(), "failed executing RootCmd: %v")
+	must.Must0f(RootCmd.Execute(), "failed executing RootCmd: %v")
 }
 
 func runMain(*cobra.Command, []string) {
@@ -58,7 +59,7 @@ func runMain(*cobra.Command, []string) {
 
 func isServiceManager() bool {
 	pFlags := RootCmd.PersistentFlags()
-	svcCommand := must.Return(pFlags.GetString("service"))
+	svcCommand := must.Must(pFlags.GetString("service"))
 	return svcCommand != ""
 }
 
@@ -100,9 +101,9 @@ func decodeConfig(cfgPath string, overrideConfigWithCLIArgs bool) (*chclient.Cli
 			config.Client.Remotes = args[1:]
 		}
 
-		config.Tunnels.Scheme = must.Return(pFlags.GetString("scheme"))
-		config.Tunnels.ReverseProxy = must.Return(pFlags.GetBool("enable-reverse-proxy"))
-		config.Tunnels.HostHeader = must.Return(pFlags.GetString("host-header"))
+		config.Tunnels.Scheme = must.Must(pFlags.GetString("scheme"))
+		config.Tunnels.ReverseProxy = must.Must(pFlags.GetBool("enable-reverse-proxy"))
+		config.Tunnels.HostHeader = must.Must(pFlags.GetString("host-header"))
 	}
 
 	return config, nil
@@ -111,31 +112,31 @@ func decodeConfig(cfgPath string, overrideConfigWithCLIArgs bool) (*chclient.Cli
 func runClient() {
 	pFlags := RootCmd.PersistentFlags()
 
-	cfgPath := must.Return(pFlags.GetString("config"))
+	cfgPath := must.Must(pFlags.GetString("config"))
 
-	config := must.ReturnF(decodeConfig(cfgPath, service.Interactive()))("Invalid config: %v. Check your config file.")
+	config := must.Mustf(decodeConfig(cfgPath, service.Interactive()))("Invalid config: %v. Check your config file.")
 
-	must.MustF(config.Logging.LogOutput.Start(), "failed starting log output: %v")
+	must.Must0f(config.Logging.LogOutput.Start(), "failed starting log output: %v")
 	defer config.Logging.LogOutput.Shutdown()
 
-	must.MustF(chclient.PrepareDirs(config), "failed preparing directories: %v")
+	must.Must0f(chclient.PrepareDirs(config), "failed preparing directories: %v")
 
-	must.MustF(config.ParseAndValidate(false), "config validation failed: %v")
+	must.Must0f(config.ParseAndValidate(false), "config validation failed: %v")
 
-	must.MustF(checkRootOK(config), "root check failed: %v")
+	must.Must0f(checkRootOK(config), "root check failed: %v")
 
 	fileAPI := files.NewFileSystem()
-	c := must.ReturnF(chclient.NewClient(config, fileAPI))("failed creating client: %v")
+	c := must.Mustf(chclient.NewClient(config, fileAPI))("failed creating client: %v")
 
 	if service.Interactive() { // if run from command line
 
 		go chshare.GoStats()
 
-		must.MustF(c.Run(), "failed to run client: %v")
+		must.Must0f(c.Run(), "failed to run client: %v")
 
 	} else { // if run as OS service
 
-		must.MustF(runAsService(c, cfgPath), "failed to start service: %v")
+		must.Must0f(runAsService(c, cfgPath), "failed to start service: %v")
 
 	}
 
@@ -151,22 +152,22 @@ func checkRootOK(config *chclient.ClientConfigHolder) error {
 func manageService() {
 	var svcUser string
 	pFlags := RootCmd.PersistentFlags()
-	cfgPath := must.Return(pFlags.GetString("config"))
-	svcCommand := must.Return(pFlags.GetString("service"))
+	cfgPath := must.Must(pFlags.GetString("config"))
+	svcCommand := must.Must(pFlags.GetString("service"))
 
 	if runtime.GOOS != "windows" {
-		svcUser = must.Return(pFlags.GetString("service-user"))
+		svcUser = must.Must(pFlags.GetString("service-user"))
 	}
 
 	if svcCommand == "install" {
 		// validate config file without command line args before installing it for the service
 		// other service commands do not change config file specified at install
 
-		config := must.ReturnF(decodeConfig(cfgPath, false))("Invalid config: %v. Check your config file.")
+		config := must.Mustf(decodeConfig(cfgPath, false))("Invalid config: %v. Check your config file.")
 
-		must.MustF(config.ParseAndValidate(true), "config validation failed: %v")
+		must.Must0f(config.ParseAndValidate(true), "config validation failed: %v")
 
 	}
 
-	must.Must(handleSvcCommand(svcCommand, cfgPath, svcUser))
+	must.Must0(handleSvcCommand(svcCommand, cfgPath, svcUser))
 }

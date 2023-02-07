@@ -68,7 +68,7 @@ require (
 )
 
 require (
-	github.com/KonradKuznicki/must v0.1.0
+	github.com/KonradKuznicki/must v0.2.0
 	github.com/aidarkhanov/nanoid/v2 v2.0.5
 	github.com/gobeam/stringy v0.0.5
 	github.com/hashicorp/go-version v1.5.0
