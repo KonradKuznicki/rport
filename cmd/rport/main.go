@@ -7,11 +7,12 @@ import (
 	"runtime"
 
 	"github.com/KonradKuznicki/must"
-	"github.com/cloudradar-monitoring/rport/cmd/rport/cliboilerplate"
-	"github.com/cloudradar-monitoring/rport/share/files"
 	"github.com/kardianos/service"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
+
+	"github.com/cloudradar-monitoring/rport/cmd/rport/cliboilerplate"
+	"github.com/cloudradar-monitoring/rport/share/files"
 
 	chclient "github.com/cloudradar-monitoring/rport/client"
 	chshare "github.com/cloudradar-monitoring/rport/share"
