@@ -19,6 +19,23 @@ import (
 	"github.com/realvnc-labs/rport/share/random"
 )
 
+//var copyAttrsToClient func(attributes Attributes, client *Client)
+//var copierClientsToAttrs func(client Client, attributes *Attributes)
+//
+//func init() {
+//	var err error
+//
+//	pairs := []dyncopy.FromToPair{dyncopy.NewPair("Tags", "Tags"), dyncopy.NewPair("Labels", "Labels")}
+//	copyAttrsToClient, err = dyncopy.NewCopier[Attributes, Client](Attributes{}, Client{}, pairs)
+//	if err != nil {
+//		panic(err)
+//	}
+//	copierClientsToAttrs, err = dyncopy.NewCopier[Client, Attributes](Client{}, Attributes{}, pairs)
+//	if err != nil {
+//		panic(err)
+//	}
+//}
+
 func CopyAttrsToClient(attributes models.Attributes, client *Client) {
 	client.Labels = attributes.Labels
 	client.Tags = attributes.Tags
@@ -175,6 +192,10 @@ func (c *Client) GetVersion() (version string) {
 func (c *Client) GetDisconnectedAt() (at *time.Time) {
 	c.flock.RLock()
 	defer c.flock.RUnlock()
+	return c.DisconnectedAt
+}
+
+func (c *Client) GetDisconnectedAtU() (at *time.Time) {
 	return c.DisconnectedAt
 }
 
@@ -374,6 +395,10 @@ func (c *Client) IsConnected() bool {
 	return c.GetDisconnectedAt() == nil
 }
 
+func (c *Client) IsConnectedU() bool {
+	return c.GetDisconnectedAt() == nil
+}
+
 func (c *Client) SetConnected() {
 	c.Log().Debugf("%s: set to connected at %s", c.GetID(), time.Now())
 	c.SetDisconnectedAt(nil)
@@ -399,6 +424,17 @@ func (c *Client) ToCalculated(allGroups []*cgroups.ClientGroup) *CalculatedClien
 	}
 
 	return NewCalculatedClient(c, clientGroups, c.CalculateConnectionState())
+}
+
+func (c *Client) ToCalculatedU(allGroups []*cgroups.ClientGroup) *CalculatedClient {
+	clientGroups := []string{}
+	for _, group := range allGroups {
+		if c.BelongsToU(group) {
+			clientGroups = append(clientGroups, group.ID)
+		}
+	}
+
+	return NewCalculatedClient(c, clientGroups, c.CalculateConnectionStateU())
 }
 
 // Obsolete returns true if a given client was disconnected longer than a given duration.
@@ -520,8 +556,67 @@ func (c *Client) BelongsTo(group *cgroups.ClientGroup) bool {
 	return true
 }
 
+func (c *Client) BelongsToU(group *cgroups.ClientGroup) bool {
+	p := group.Params
+	if p.HasNoParams() {
+		return false
+	}
+
+	if !p.ClientID.MatchesOneOf(c.ID) {
+		return false
+	}
+	if !p.Name.MatchesOneOf(c.Name) {
+		return false
+	}
+	if !p.OS.MatchesOneOf(c.OS) {
+		return false
+	}
+	if !p.OSArch.MatchesOneOf(c.OSArch) {
+		return false
+	}
+	if !p.OSFamily.MatchesOneOf(c.OSFamily) {
+		return false
+	}
+	if !p.OSKernel.MatchesOneOf(c.OSKernel) {
+		return false
+	}
+	if !p.Hostname.MatchesOneOf(c.Hostname) {
+		return false
+	}
+	if !p.IPv4.MatchesOneOf(c.IPv4...) {
+		return false
+	}
+	if !p.IPv6.MatchesOneOf(c.IPv6...) {
+		return false
+	}
+
+	if !cgroups.MatchesRawTags(p.Tag, c.Tags) {
+		return false
+	}
+
+	if !p.Version.MatchesOneOf(c.Version) {
+		return false
+	}
+
+	if !p.Address.MatchesOneOf(c.Address) {
+		return false
+	}
+
+	if !p.ClientAuthID.MatchesOneOf(c.ClientAuthID) {
+		return false
+	}
+	return true
+}
+
 func (c *Client) CalculateConnectionState() ConnectionState {
 	if c.IsConnected() {
+		return Connected
+	}
+	return Disconnected
+}
+
+func (c *Client) CalculateConnectionStateU() ConnectionState {
+	if c.IsConnectedU() {
 		return Connected
 	}
 	return Disconnected

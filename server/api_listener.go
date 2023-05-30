@@ -20,10 +20,11 @@ import (
 	"github.com/gorilla/mux"
 	"github.com/jpillora/requestlog"
 
-	"github.com/realvnc-labs/rport/db/migration/api_token"
-	"github.com/realvnc-labs/rport/db/migration/library"
-	"github.com/realvnc-labs/rport/db/sqlite"
 	rportplus "github.com/realvnc-labs/rport/plus"
+	"github.com/realvnc-labs/rport/server/clients/storedtunnels/tunnelprovider"
+	"github.com/realvnc-labs/rport/share/simplestore"
+	"github.com/realvnc-labs/rport/share/simplestore/kvs/fskv"
+	"github.com/realvnc-labs/rport/share/simplestore/kvs/inmemory"
 
 	"github.com/realvnc-labs/rport/server/api/authorization"
 	"github.com/realvnc-labs/rport/server/api/session"
@@ -117,7 +118,25 @@ func NewAPIListener(
 
 	vaultDBProviderFactory := vault.NewStatefulDbProviderFactory(
 		func() (vault.DbProvider, error) {
-			return vault.NewSqliteProvider(config, vaultLogger)
+			// return vault.NewSqliteProvider(config, vaultLogger)
+			newFSKVstatus, err := fskv.NewFSKV(path.Join(config.GetVaultDBPath(), "status"))
+			if err != nil {
+				return nil, err
+			}
+			newFSKVvalues, err := fskv.NewFSKV(path.Join(config.GetVaultDBPath(), "values"))
+			if err != nil {
+				return nil, err
+			}
+			statusStore, err := simplestore.NewSimpleStore[vault.DbStatus](ctx, newFSKVstatus)
+			if err != nil {
+				return nil, err
+			}
+
+			valuesStore, err := simplestore.NewSimpleStore[vault.StoredValue](ctx, newFSKVvalues)
+			return vault.NewKVVaultProvider(
+				statusStore,
+				valuesStore,
+			), nil
 		},
 		&vault.NotInitDbProvider{},
 	)
@@ -135,35 +154,45 @@ func NewAPIListener(
 		}
 	}
 
-	libraryDb, err := sqlite.New(
-		path.Join(config.Server.DataDir, "library.db"),
-		library.AssetNames(),
-		library.Asset,
-		config.Server.GetSQLiteDataSourceOptions(),
-	)
-	if err != nil {
-		return nil, fmt.Errorf("failed init library DB instance: %w", err)
-	}
-
-	apiTokenDb, err := sqlite.New(
-		path.Join(config.Server.DataDir, "api_token.db"),
-		api_token.AssetNames(),
-		api_token.Asset,
-		config.Server.GetSQLiteDataSourceOptions(),
-	)
-	if err != nil {
-		return nil, fmt.Errorf("failed init api_token DB instance: %w", err)
-	}
+	//libraryDb, err := sqlite.New(
+	//	path.Join(config.Server.DataDir, "library.db"),
+	//	library.AssetNames(),
+	//	library.Asset,
+	//	config.Server.GetSQLiteDataSourceOptions(),
+	//)
+	//if err != nil {
+	//	return nil, fmt.Errorf("failed init library DB instance: %w", err)
+	//}
 
 	scriptLogger := logger.NewLogger("scripts", config.Logging.LogOutput, config.Logging.LogLevel)
-	scriptProvider := script.NewSqliteProvider(libraryDb)
+	// scriptProvider := script.NewSqliteProvider(libraryDb)
+	fileScriptStore, err := fskv.NewFSKV("scripts")
+	if err != nil {
+		return nil, err
+	}
+	simpleStore, err := simplestore.NewSimpleStore[script.Script](ctx, fileScriptStore)
+	if err != nil {
+		return nil, err
+	}
+	scriptProvider := script.NewKVScriptProvider(simpleStore)
 	scriptManager := script.NewManager(scriptProvider, scriptLogger)
 
-	commandProvider := command.NewSqliteProvider(libraryDb)
+	fileCommandStore, err := fskv.NewFSKV("commands")
+	if err != nil {
+		return nil, err
+	}
+	simpleCommandStore, err := simplestore.NewSimpleStore[command.Command](ctx, fileCommandStore)
+	if err != nil {
+		return nil, err
+	}
+	// commandProvider := command.NewSqliteProvider(libraryDb)
+	commandProvider := command.NewKVCommandProvider(simpleCommandStore)
 	commandManager := command.NewManager(commandProvider)
 
-	tokenProvider := authorization.NewSqliteProvider(apiTokenDb)
-	tokenManager := authorization.NewManager(tokenProvider)
+	tokenManager, err := authorization.BootstrapManager(ctx, authorization.BoostrapConfig{SQLiteStorageConfig: &config.Server})
+	if err != nil {
+		return nil, err
+	}
 
 	userService, err := users.NewAPIServiceFromConfig(server.authDB, config)
 	if err != nil {
@@ -188,6 +217,16 @@ func NewAPIListener(
 	}
 
 	allog := logger.NewLogger("api-listener", config.Logging.LogOutput, config.Logging.LogLevel)
+
+	newFSKV, err := fskv.NewFSKV("./tunnels")
+	if err != nil {
+		return nil, err
+	}
+	store, err := simplestore.NewSimpleStore[storedtunnels.StoredTunnel](context.Background(), newFSKV)
+	if err != nil {
+		return nil, err
+	}
+
 	a := &APIListener{
 		Server:            server,
 		Logger:            allog,
@@ -200,7 +239,7 @@ func NewAPIListener(
 		scriptManager:     scriptManager,
 		commandManager:    commandManager,
 		tokenManager:      tokenManager,
-		storedTunnels:     storedtunnels.New(server.clientDB),
+		storedTunnels:     storedtunnels.New(tunnelprovider.NewTunnelProvider(store)),
 	}
 
 	a.errResponseLogger = allog.Fork("error-response")
@@ -269,10 +308,16 @@ func NewAPIListener(
 		a.accessLogFile = accessLogFile
 	}
 
-	sessionDB, err := session.NewSqliteProvider(path.Join(config.Server.DataDir, "api_sessions.db"), config.Server.GetSQLiteDataSourceOptions())
+	sessionStore, err := simplestore.NewSimpleStore[session.APISession](ctx, inmemory.NewInMemory())
 	if err != nil {
 		return nil, err
 	}
+	sessionDB := session.NewKVSessionProvider(sessionStore)
+
+	//sessionDB, err := session.NewSqliteProvider(path.Join(config.Server.DataDir, "api_sessions.db"), config.Server.GetSQLiteDataSourceOptions())
+	//if err != nil {
+	//	return nil, err
+	//}
 
 	a.apiSessions, err = session.NewCache(ctx, bearer.DefaultTokenLifetime, cleanupAPISessionsInterval, sessionDB, nil)
 	if err != nil {
